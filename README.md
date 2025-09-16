@@ -54,7 +54,7 @@ As before, Services have names and might be exported, which has threat landscape
 Broadcast Receivers are components that listen for system-wide messages (known as `broadcast Intents`), for example: network state changes, incoming SMS, boot completion.  
 Here is an example of a Broadcast Receiver being declared:
 
-```
+```xml
 <receiver android:name="BootReceiver"
           android:enabled="true"
           android:exported="true">
@@ -65,7 +65,22 @@ Here is an example of a Broadcast Receiver being declared:
 ```
 
 In this case, the Broadcast Receiver starts when it receives a `BOOT_COMPLETED` Intent - which triggers when the phone boots up.  
-Interestingly, that could be used for persisting malware (and in fact, the main persistence mechanism in Android).
+Interestingly, that could be used for persisting malware (and in fact, the main persistence mechanism in Android).  
+Also note that `exported` Broadcast Receivers can be triggered by other Apps, so that's a security risk.
+
+### Content Providers
+Content Providers are Database-like interfaces for sharing data between apps and expose a URI-based API (`content://...`). Here is a declaration of one:
+
+```xml
+<provider android:name="NotesProvider"
+          android:authorities="com.example.notes"
+          android:exported="true"
+          android:readPermission="com.example.READ_NOTES"
+          android:writePermission="com.example.WRITE_NOTES" />
+```
+
+In terms of security, they might pose a risk if they're exported without opermissions checks, as attackers might read/modify data in them.
+Additionally, misconfigurations in custom providers might lead to data leakage vulnerabilities.
 
 ## IPC - the Binder
 One critical aspect of Android is known as the `Binder`.
