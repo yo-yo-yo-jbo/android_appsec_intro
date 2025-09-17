@@ -4,8 +4,9 @@ In this first blogpost, I will mention how Android Apps work, their connection t
 
 ## Apps and the platform
 Apps are bundles that contain code, resources and signatures, and are shipped in an archive that commonly has the `*.apk` extension.  
+APKs are simply zip archives that contain the code (comes in `*.dex` files), signatures, resources, a manifest file (more on that shortly) and optionallly native code (more on that much later).
 The majority of an App's code in written in Java (or other managed languages) and ultimately run in a Java Virtual Machine (JVM).  
-In the past, the JVM was used to be known as `Dalvik` and ran `Dalvik Executable (DEX)` files, but these days the JVM is known as `Android Runtime (ART)`, which unlike Dalvik (which had `Just-In-Time (JIT)` compilation), has `Ahead-of-time (AOT)` compilation.
+In the past, the JVM used to be known as `Dalvik` and ran `Dalvik Executable (DEX)` files, but these days the JVM is known as `Android Runtime (ART)`, which unlike Dalvik (which had `Just-In-Time (JIT)` compilation), has `Ahead-of-time (AOT)` compilation.
 
 The capabilities of each App are mentioned in a special file called `AndroidManifest.xml`, which contains App metadata, components, and most importantly - permissions.  
 App permissions are derived from that manifest - for example the ability to use the camera, access location services, make calls and even use the internet.
@@ -14,13 +15,13 @@ Android is built on top of Linux and thus - a lot of different Android App capab
 In particular:
 - Each Android App gets a special ID called `App ID`, which is really a Linux user (the App ID is a Linux UID)!
 - Filesystem isolation comes "for free" - each App data is saved under `/data/data/<package>` and will only be readable and writable to the App ID that owns it - in other words - `rw-------`.
-- Certain permissions translate into Linux group memberships - for instance, `sdcard_rw` group is a Linux group that has permissions to read or write to external storage, and having that capability in `AndroidfManifest.xml` translates into the Linux user belonging to that group.
+- Certain permissions translate into Linux group memberships - for instance, `sdcard_rw` group is a Linux group that has permissions to read or write to external storage, and having that capability in `AndroidManifest.xml` translates into the Linux user belonging to that group.
 
 One more thing to note about Android Apps is that they are signed - Android Apps must be digitally signed with a certificate.  
 Signatures are typically verified at App install time and upgrade time, but there are mechanism to check an App's signature at arbitrary times too.
 
 ## App components
-As I mentoned, the `AndroidManifest.xml` contains metadata about the App. In addition to permissions, it contains a set of App components:
+As I mentioned, the `AndroidManifest.xml` contains metadata about the App. In addition to permissions, it contains a set of App components:
 
 ### Activities
 An `Activity` is kind of a UI screen, and an entry point to user interactions. Here is an example of an Activity declaration:
@@ -38,7 +39,7 @@ An `Activity` is kind of a UI screen, and an entry point to user interactions. H
 
 Note the activity name `LoginActivity`, as well as:
 1. The fact the activity is `exported`. Exported activities can be referred to from different Apps (more on that when we discuss IPC). Note Apps attacking other Apps in Android is a huge concern, and so, `exported` Activities are a significant threat in the Android ecosystem.
-2. There is an `Intent filter`, which specifies how the Activity can be launched. We haven't explained what `Intents` are yet, but in essence - they are means of communications between different Apps. Intenrs have `actions` and `categories`, and the `intent filter` is enforced by matching those Intent members against the filter.
+2. There is an `Intent filter`, which specifies how the Activity can be launched. We haven't explained what `Intents` are yet, but in essence - they are means of communications between different Apps. Intents have `actions` and `categories`, and the `intent filter` is enforced by matching those Intent members against the filter.
 
 ### Services
 A `Service` is a component meant to run for a long time in the background without UI (e.g. playing music). Here is an example of a Service being declared:
@@ -96,7 +97,7 @@ Its contents contain:
 - Extras: key–value pairs packaged in a Bundle.
 
 There are `Explicit` and `Implicit` Intents - explicit ones are Intents in which the target is known, and implicit ones are resolved dynamically.  
-In terms of security, implicit intenrs are at a higher risk of hijacking.
+In terms of security, implicit intents are at a higher risk of hijacking.
 Explicit vs. implicit intents: explicit → safe (known target), implicit → risk of hijacking.  
 Also, if an exported component (such as an Activity) processes an Intent without validation, it can lead to multiple security issues.
 
@@ -127,3 +128,65 @@ Android Apps also supports `Java Native Interface (JNI)`, which is a mechanism t
 JNI support is important for performance, as well as using libraries not ported to Java.  
 The security implications of JNI code are vast: since C\C++ are unsafe languages (Java is a managed language), memory corruption vulnerabilities are a huge risk.
 Of course, JNI code is shipped as *.so files in App packages, so they are signed.
+
+## Our first example - Intent redirection vulnerability
+To finish things off, let's show an Intent redirection vulnerability.  
+As I mentioned, `exported` components can receive arbitrary Intents and its their responsibility to sanitize input.  
+Let's see an example when that doesn't happen:
+- `VulnerableApp` exposes a `BroadcastReceiver` that accepts an `Intent`.
+- The receiver reads a sensitive string (simulating private app data) and sends it using an action/component taken directly from the incoming Intent.
+- AttackerApp sends a crafted Intent to the vulnerable receiver, including a destination action that the attacker is listening for.
+- The vulnerable app obeys the attacker-provided destination and broadcasts the secret — exfiltrated.
+
+Let's see the files for the `vulnerableApp` App:
+
+### AndroidManifest.xml
+```xml
+<manifest package="com.example.vulnerable">
+  <application>
+    <receiver android:name=".LeakForwardReceiver"
+              android:exported="true">
+      <intent-filter>
+        <action android:name="com.example.vulnerable.FORWARD" />
+      </intent-filter>
+    </receiver>
+  </application>
+</manifest>
+```
+
+### LeakForwardReceiver.java
+```java
+public class LeakForwardReceiver extends BroadcastReceiver {
+    @Override
+    public void onReceive(Context ctx, Intent intent) {
+        String secret = getSecretValue(ctx);
+        String dstAction = intent.getStringExtra("dst_action");
+        if (dstAction == null)
+            return;
+
+        Intent forward = new Intent(dstAction);
+        forward.putExtra("data", secret);
+
+        // THIS IS THE BUG: attacker-controlled dstAction is used directly
+        ctx.sendBroadcast(forward);
+    }
+
+    private String getSecretValue(Context ctx) {
+        // Simulate something sensitive
+        return "TOP_SECRET_TOKEN_ABC123";
+    }
+}
+```
+
+Let's note:
+- Receiver has `exported="true"` in the `AndroidManifest.xml` file, which means it can get arbitrary Intents cross-Apps.
+- The receiver trusts `dst_action` from the untrusted incoming Intent and uses it as the broadcast action to send secrets to.
+- The attacker selects `dst_action` to one they listen for, resulting in data exfiltration.
+
+## Summary
+In this first and very basic blogpost we've explored the basic Android security mechanisms.  
+In the next blogpost I intend to show an example I found a couple of years ago that allowed be to achieve a complete device takeover.
+
+Stay tuned!
+
+Jonathan Bar Or
