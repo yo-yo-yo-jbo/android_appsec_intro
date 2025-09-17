@@ -121,3 +121,9 @@ From a security standpoint, custom Parcelable implementations are often fragile,
 ### Content URIs
 `Content URIs` are URIs referencing data exposed by a Content Provider.  
 They typically passed inside Intents or Bundles, and, as I mentioned before, might pose a serious risk regarding private data App read\write.
+
+## Native code - JNI
+Android Apps also supports `Java Native Interface (JNI)`, which is a mechanism to call functionality coded in C\C++, and vice-versa.
+JNI support is important for performance, as well as using libraries not ported to Java.  
+The security implications of JNI code are vast: since C\C++ are unsafe languages (Java is a managed language), memory corruption vulnerabilities are a huge risk.
+Of course, JNI code is shipped as *.so files in App packages, so they are signed.
