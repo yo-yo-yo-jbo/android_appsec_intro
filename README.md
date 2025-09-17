@@ -31,7 +31,7 @@ An `Activity` is kind of a UI screen, and an entry point to user interactions. H
           android:permission="com.example.MY_PERMISSION">
     <intent-filter>
         <action android:name="android.intent.action.MAIN" />
-        <category android:name="android.intent.category.LAUNCHER" />
+        <category android:name="android.intent.category.LAUNCHER"/>
     </intent-filter>
 </activity>
 ```
@@ -45,7 +45,7 @@ A `Service` is a component meant to run for a long time in the background withou
 
 ```xml
 <service android:name="SyncService"
-         android:exported="false" />
+         android:exported="false"/>
 ```
 
 As before, Services have names and might be exported, which has threat landscape implications.
@@ -76,11 +76,48 @@ Content Providers are Database-like interfaces for sharing data between apps and
           android:authorities="com.example.notes"
           android:exported="true"
           android:readPermission="com.example.READ_NOTES"
-          android:writePermission="com.example.WRITE_NOTES" />
+          android:writePermission="com.example.WRITE_NOTES"/>
 ```
 
 In terms of security, they might pose a risk if they're exported without opermissions checks, as attackers might read/modify data in them.
 Additionally, misconfigurations in custom providers might lead to data leakage vulnerabilities.
 
 ## IPC - the Binder
-One critical aspect of Android is known as the `Binder`.
+One critical aspect of Android is known as the `Binder`. The binder is a kernel driver (`/dev/binder`) that allows processes (Apps and system services) to exchange messages safely and efficiently.  
+Almost all higher-level Android features (Intents, Services, Content Providers, etc.) are ultimately implemented on top of Binder.  
+There are many types of data that flow through the Binder:
+
+### Intents
+An `Intent` is a messaging object describing an operation (e.g., “start this activity”, “broadcast this event”), and is central to Android IPC.  
+Its contents contain:
+- Action: (android.intent.action.VIEW, SEND, etc.).
+- Data URI: e.g., content://contacts/people/1.
+- Component: explicit target (package/class) or left implicit for system resolution.
+- Extras: key–value pairs packaged in a Bundle.
+
+There are `Explicit` and `Implicit` Intents - explicit ones are Intents in which the target is known, and implicit ones are resolved dynamically.  
+In terms of security, implicit intenrs are at a higher risk of hijacking.
+Explicit vs. implicit intents: explicit → safe (known target), implicit → risk of hijacking.  
+Also, if an exported component (such as an Activity) processes an Intent without validation, it can lead to multiple security issues.
+
+### Bundle
+A `Bundle` is a mapping that maps String to value (basically a type-safe HashMap).  
+It's used everywhere: extras in Intents, arguments in Activities, saved state.  
+Supported values could be:
+- Primitives (int, float, boolean, etc.).
+- Arrays of primitives.
+- Strings, CharSequence.
+- `Parcelable` or `Serializable` objects (more on that later).
+- Nested Bundles.
+
+From a security perspective, bugs in custom Parcelable code can cause deserialization vulnerabilities.
+
+### Parcelable
+A `Parcelable` is a serialization mechanism optimized for Binder.  
+Custom classes implement a Parcelable interface to define how to flatten/unflatten themselves.  
+The system APIs contain many Parcelables, such as Location, Bitmap, Intent and Bundle.  
+From a security standpoint, custom Parcelable implementations are often fragile, especially when unparcelling untrusted data.
+
+### Content URIs
+`Content URIs` are URIs referencing data exposed by a Content Provider.  
+They typically passed inside Intents or Bundles, and, as I mentioned before, might pose a serious risk regarding private data App read\write.
