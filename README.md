@@ -189,4 +189,4 @@ In the next blogpost I intend to show an example I found a couple of years ago t
 
 Stay tuned!
 
-Jonathan Bar Or
+Jonathan Bar Or (https://jonathanbaror.com)
